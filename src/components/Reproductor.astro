@@ -1,0 +1,133 @@
+---
+import { curso, nodos } from '../data/escenario';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const datos = { curso, nodos, base };
+---
+<section class="reproductor" id="reproductor" aria-label="Reproductor interactivo">
+  <video id="video" playsinline preload="auto" poster={`${base}/videos/poster.jpg`}></video>
+
+  <!-- Portada -->
+  <div class="capa portada" id="portada">
+    <p class="eti">Capacitación interactiva</p>
+    <h2>{curso.titulo}</h2>
+    <p>Tú decides qué hace el trabajador. Cada decisión cambia la historia.</p>
+    <button class="btn principal" id="comenzar">▶ Comenzar</button>
+  </div>
+
+  <!-- Opciones (aparecen mientras el video sigue corriendo) -->
+  <div class="capa opciones" id="opciones" hidden>
+    <p class="pregunta" id="pregunta"></p>
+    <div class="botones" id="botones"></div>
+    <div class="tiempo"><div class="barra" id="barra"></div></div>
+  </div>
+
+  <!-- Retroalimentación inmediata -->
+  <div class="retro" id="retro" hidden></div>
+
+  <!-- Resultado -->
+  <div class="capa resultado" id="resultado" hidden>
+    <p class="eti" id="res-tipo"></p>
+    <h2 id="res-titulo"></h2>
+    <p id="res-mensaje"></p>
+    <div class="puntaje"><span id="res-puntos"></span><small>puntos</small></div>
+    <p class="leccion"><strong>Lección clave:</strong> <span id="res-leccion"></span></p>
+    <ol class="ruta" id="res-ruta"></ol>
+    <div class="acciones">
+      <button class="btn principal" id="reintentar">↺ Probar otra ruta</button>
+    </div>
+  </div>
+
+  <!-- Controles propios: sin barra de avance para no saltarse decisiones -->
+  <div class="controles">
+    <button class="ctl" id="pausa" aria-label="Pausar">❚❚</button>
+    <span class="escena" id="escena"></span>
+    <button class="ctl" id="sonido" aria-label="Silenciar">🔊</button>
+    <button class="ctl" id="pantalla" aria-label="Pantalla completa">⛶</button>
+  </div>
+</section>
+
+<script type="application/json" id="datos-curso" set:html={JSON.stringify(datos)} />
+
+<script>
+  import { iniciarReproductor } from '../scripts/reproductor';
+  iniciarReproductor();
+</script>
+
+<style>
+  .reproductor {
+    position: relative; aspect-ratio: 16 / 9; width: 100%;
+    background: #000; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+  }
+  .reproductor:fullscreen { border-radius: 0; }
+  video { width: 100%; height: 100%; display: block; object-fit: contain; }
+
+  .capa { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 4%; }
+  .capa[hidden], .retro[hidden] { display: none; }
+  .capa h2 { margin: 0 0 .3em; font-size: clamp(22px, 4vw, 44px); line-height: 1.1; }
+  .capa p { margin: 0 0 1em; max-width: 46ch; color: #d9dee6; font-size: clamp(13px, 1.6vw, 18px); }
+  .eti { text-transform: uppercase; letter-spacing: .12em; font-weight: 700; font-size: 12px !important; color: var(--acento) !important; margin-bottom: .6em !important; }
+
+  .portada { background: linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.8)); }
+
+  .btn { border: 0; border-radius: 8px; padding: 12px 22px; cursor: pointer; font-weight: 700; font-size: clamp(14px, 1.6vw, 18px); }
+  .btn.principal { background: var(--acento); color: #1a1200; }
+  .btn.principal:hover { filter: brightness(1.1); }
+
+  .opciones {
+    justify-content: flex-end; padding-bottom: 7%;
+    background: linear-gradient(180deg, transparent 35%, rgba(0,0,0,.92) 70%);
+    animation: subir .35s ease-out;
+  }
+  @keyframes subir { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+  .pregunta { font-size: clamp(15px, 2.2vw, 26px) !important; font-weight: 700; color: #fff !important; text-shadow: 0 2px 10px #000; margin-bottom: .8em !important; max-width: 60ch !important; }
+  .botones { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .botones :global(button) {
+    min-width: 180px; max-width: 300px; padding: 14px 18px; border-radius: 8px; cursor: pointer;
+    background: rgba(20, 22, 28, .85); color: #fff; border: 2px solid rgba(255,255,255,.35);
+    font-size: clamp(13px, 1.5vw, 17px); font-weight: 600; transition: transform .15s, border-color .15s, background .15s;
+  }
+  .botones :global(button:hover), .botones :global(button:focus-visible) { border-color: var(--acento); background: rgba(40, 32, 12, .92); transform: translateY(-2px); outline: none; }
+  .botones :global(button .tecla) { display: inline-block; margin-right: 8px; padding: 0 6px; border-radius: 4px; background: rgba(255,255,255,.15); font-size: .8em; }
+  .tiempo { width: min(520px, 80%); height: 4px; margin-top: 16px; background: rgba(255,255,255,.2); border-radius: 2px; overflow: hidden; }
+  .barra { height: 100%; width: 100%; background: var(--acento); transform-origin: left; }
+
+  .retro {
+    position: absolute; left: 50%; top: 8%; transform: translateX(-50%); max-width: 80%;
+    padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: clamp(13px, 1.6vw, 18px);
+    background: rgba(10, 12, 16, .92); border-left: 5px solid var(--acento); animation: subir .3s ease-out;
+  }
+  .retro.bien { border-left-color: var(--bien); }
+  .retro.mal { border-left-color: var(--mal); }
+
+  .resultado { background: rgba(8, 10, 14, .96); overflow-y: auto; justify-content: flex-start; padding-top: 4%; }
+  .resultado.exito .eti { color: var(--bien) !important; }
+  .resultado.fallo .eti { color: var(--mal) !important; }
+  .puntaje { font-size: clamp(28px, 5vw, 52px); font-weight: 800; color: var(--acento); line-height: 1; margin-bottom: .3em; }
+  .puntaje small { font-size: 14px; color: var(--tenue); margin-left: 6px; font-weight: 500; }
+  .leccion { background: #1d2230; padding: 8px 14px; border-radius: 8px; }
+  .ruta { text-align: left; margin: 0 0 1em; padding-left: 1.4em; font-size: clamp(12px, 1.3vw, 15px); color: #c9d0db; }
+  .ruta :global(li.bien)::marker { color: var(--bien); }
+  .ruta :global(li.mal)::marker { color: var(--mal); }
+  .ruta :global(.p) { color: var(--tenue); }
+
+  .controles {
+    position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: linear-gradient(transparent, rgba(0,0,0,.6)); opacity: 0; transition: opacity .25s;
+  }
+  .reproductor:hover .controles, .reproductor:focus-within .controles { opacity: 1; }
+  .ctl { background: none; border: 0; color: #fff; cursor: pointer; font-size: 16px; padding: 4px 8px; }
+  .escena { flex: 1; font-size: 13px; color: #c9d0db; }
+
+  /* En celular las opciones y el resultado van debajo del video para que quepan. */
+  @media (max-width: 640px) {
+    .reproductor { aspect-ratio: auto; border-radius: 10px; }
+    video { aspect-ratio: 16 / 9; height: auto; }
+    .portada p:not(.eti) { display: none; }
+    .opciones, .resultado { position: static; background: var(--panel); padding: 16px; animation: none; }
+    .botones :global(button) { min-width: 0; flex: 1 1 100%; padding: 12px; }
+    .controles { opacity: 1; top: 0; bottom: auto; background: linear-gradient(rgba(0,0,0,.5), transparent); }
+    .retro { top: 6px; font-size: 13px; }
+  }
+</style>

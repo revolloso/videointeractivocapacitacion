@@ -1,0 +1,42 @@
+---
+import { nodos } from '../data/escenario';
+
+interface Props { id: string; via?: string }
+const { id, via } = Astro.props;
+const nodo = nodos[id];
+const tipo = nodo.final ? nodo.final.tipo : 'decision';
+---
+<li data-nodo={id} class={`rama ${tipo}`}>
+  {via && <span class="via">Si eliges: “{via}”</span>}
+  <span class="caja">
+    <span class="marca" aria-hidden="true">{tipo === 'exito' ? '✓' : tipo === 'fallo' ? '✕' : '◆'}</span>
+    {nodo.titulo}
+  </span>
+  {nodo.opciones && (
+    <ul>
+      {nodo.opciones.map((o) => <Astro.self id={o.siguiente} via={o.texto} />)}
+    </ul>
+  )}
+</li>
+
+<style>
+  .rama { list-style: none; position: relative; padding: 6px 0 6px 22px; }
+  .rama::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; border-left: 2px solid var(--borde); }
+  .rama::after { content: ''; position: absolute; left: 0; top: 26px; width: 16px; border-top: 2px solid var(--borde); }
+  .rama:last-child::before { bottom: auto; height: 27px; }
+  ul { padding: 0; margin: 4px 0 0 0; }
+  .via { display: block; font-size: 13px; color: var(--tenue); }
+  .caja {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--borde); font-size: 15px;
+    transition: border-color .3s, background .3s, opacity .3s;
+  }
+  .marca { font-size: 12px; color: var(--tenue); }
+  .exito .marca { color: var(--bien); }
+  .fallo .marca { color: var(--mal); }
+  :global(.mapa.con-ruta) .rama:not(.visitado) > .caja { opacity: .45; }
+  .visitado > .caja { border-color: var(--acento); background: #2a2210; }
+  .actual > .caja { box-shadow: 0 0 0 3px rgba(255, 176, 32, .35); }
+  .visitado::after { border-color: var(--acento); }
+</style>

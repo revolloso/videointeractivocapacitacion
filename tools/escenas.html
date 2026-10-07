@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Render de escenas</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #000; font-family: Inter, 'DejaVu Sans', sans-serif; }
+  #stage { position: relative; width: 1280px; height: 720px; }
+  svg { position: absolute; inset: 0; }
+  #chip { position: absolute; top: 28px; left: 32px; padding: 8px 16px; border-radius: 6px;
+    background: rgba(0,0,0,.55); color: #ffd23f; font-weight: 700; font-size: 20px; letter-spacing: .04em; text-transform: uppercase; }
+  #cap { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); max-width: 1000px;
+    padding: 12px 24px; border-radius: 8px; background: rgba(0,0,0,.72); color: #fff; font-size: 32px; line-height: 1.3; text-align: center; font-weight: 500; }
+  #cap:empty { display: none; }
+  #big { position: absolute; inset: 0; padding-top: 230px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: #fff; text-align: center; }
+  #big .t { font-size: 64px; font-weight: 800; text-shadow: 0 4px 24px rgba(0,0,0,.6); }
+  #big .s { font-size: 30px; font-weight: 500; opacity: .9; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <svg id="svg" viewBox="0 0 1280 720" width="1280" height="720"></svg>
+  <div id="chip"></div>
+  <div id="big"></div>
+  <div id="cap"></div>
+</div>
+<script>
+// Escenas ilustradas generadas por código (licencia libre, propias del demo).
+// Cada escena es una función del tiempo t (segundos) que devuelve SVG.
+
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const ease = (k) => { k = clamp(k); return k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2; };
+const prog = (t, a, b) => ease((t - a) / (b - a));
+// Ruido determinista para que cada render sea igual.
+const noise = (x) => { const s = Math.sin(x * 12.9898) * 43758.5453; return s - Math.floor(s); };
+
+// ---------- Piezas ----------
+function almacen() {
+  let s = `
+  <defs>
+    <linearGradient id="pared" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b4a5a"/><stop offset="1" stop-color="#55677a"/></linearGradient>
+    <linearGradient id="piso" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6f6f6f"/><stop offset="1" stop-color="#4a4a4a"/></linearGradient>
+  </defs>
+  <rect width="1280" height="560" fill="url(#pared)"/>
+  <rect y="560" width="1280" height="160" fill="url(#piso)"/>
+  <rect y="600" width="1280" height="10" fill="#e5c33a" opacity=".85"/>`;
+  // Lámparas
+  for (let i = 0; i < 4; i++) s += `<rect x="${140 + i * 320}" y="40" width="120" height="10" rx="4" fill="#d9e6f2"/><polygon points="${140 + i * 320},50 ${260 + i * 320},50 ${300 + i * 320},200 ${100 + i * 320},200" fill="#fffbe0" opacity=".05"/>`;
+  // Estantes con cajas
+  for (const x0 of [60, 360]) {
+    s += `<rect x="${x0}" y="230" width="12" height="330" fill="#2b6cb0"/><rect x="${x0 + 238}" y="230" width="12" height="330" fill="#2b6cb0"/>`;
+    for (const y of [330, 440, 550]) s += `<rect x="${x0}" y="${y}" width="250" height="10" fill="#e07b24"/>`;
+    for (const [y, n] of [[330, 3], [440, 4], [550, 3]]) for (let i = 0; i < n; i++) {
+      const w = 50 + noise(x0 + y + i) * 20, h = 40 + noise(i + y) * 40;
+      s += `<rect x="${x0 + 20 + i * 58}" y="${y - h}" width="${w}" height="${h}" fill="#b98b55" stroke="#8a6438" stroke-width="2"/><rect x="${x0 + 20 + i * 58}" y="${y - h + 10}" width="${w}" height="6" fill="#d8b47c"/>`;
+    }
+  }
+  return s;
+}
+
+function tablero(x, y, chispa = 0) {
+  return `<g transform="translate(${x},${y})">
+    <rect width="150" height="200" rx="6" fill="#9aa5b1" stroke="#6b7682" stroke-width="4"/>
+    <rect x="12" y="12" width="126" height="176" rx="4" fill="#b8c2cc"/>
+    <polygon points="75,40 52,110 72,110 62,160 100,84 79,84 92,40" fill="#ffd23f" stroke="#222" stroke-width="3"/>
+    <text x="75" y="185" font-size="16" text-anchor="middle" font-weight="700" fill="#333">ALTO VOLTAJE</text>
+    ${chispa > 0 ? `<circle cx="140" cy="20" r="${6 + chispa * 8}" fill="#fff6a0" opacity="${chispa}"/>` : ''}
+  </g>`;
+}
+
+function humo(t, cx, base, intensidad = 1, alto = 380, n = 16) {
+  let s = '';
+  for (let i = 0; i < n; i++) {
+    const vida = ((t * 0.28 + i / n) % 1);
+    const y = base - vida * alto;
+    const x = cx + Math.sin(vida * 4 + i) * 30 * vida + (noise(i) - .5) * 20;
+    const r = 14 + vida * 70;
+    const o = (1 - vida) * .55 * intensidad;
+    s += `<circle cx="${x}" cy="${y}" r="${r}" fill="#5d5d5d" opacity="${o.toFixed(3)}"/>`;
+  }
+  return s;
+}
+
+function flama(cx, base, h, w, t, col, fase = 0) {
+  const pts = [];
+  const N = 18;
+  for (let i = 0; i <= N; i++) {
+    const a = i / N;
+    const lado = a < .5 ? -1 : 1;
+    const k = a < .5 ? a * 2 : (1 - a) * 2; // 0 en la base, 1 en la punta
+    const ancho = w * Math.sin(Math.PI * (1 - k) * .9 + .1) * (1 - k * .9);
+    const wob = Math.sin(t * 9 + k * 6 + fase) * 10 * k + Math.sin(t * 13 + i) * 3;
+    pts.push([cx + lado * ancho * .5 + wob, base - k * h * (1 + .12 * Math.sin(t * 7 + fase))]);
+  }
+  return `<path d="M${pts.map((p) => p.map((v) => v.toFixed(1)).join(',')).join(' L')} Z" fill="${col}"/>`;
+}
+
+function fuego(cx, base, escala, t) {
+  if (escala <= 0.01) return '';
+  return `<g>
+    <ellipse cx="${cx}" cy="${base}" rx="${120 * escala}" ry="${30 * escala}" fill="#ff8a00" opacity=".25"/>
+    ${flama(cx, base, 220 * escala, 170 * escala, t, '#e63b16')}
+    ${flama(cx - 30 * escala, base, 150 * escala, 100 * escala, t, '#e63b16', 2)}
+    ${flama(cx + 35 * escala, base, 170 * escala, 110 * escala, t, '#e63b16', 4)}
+    ${flama(cx, base, 160 * escala, 120 * escala, t, '#ff8a00', 1)}
+    ${flama(cx, base, 90 * escala, 70 * escala, t, '#ffd23f', 3)}
+  </g>`;
+}
+
+// Persona: pies en (x, y). op: {paso, mira, brazo, escala, casco, chaleco, camisa}
+function persona(x, y, op = {}) {
+  const e = op.escala ?? 1, f = op.mira ?? 1, p = op.paso ?? 0;
+  const casco = op.casco ?? '#ffd23f', chaleco = op.chaleco ?? '#ff7a1a', camisa = op.camisa ?? '#2f5d8a';
+  const pierna = Math.sin(p) * 22;
+  const brazo = op.brazo ?? 'abajo';
+  let brazos;
+  if (brazo === 'arriba') brazos = `<line x1="0" y1="-128" x2="${26 * f}" y2="-190" stroke="${camisa}" stroke-width="14" stroke-linecap="round"/><line x1="0" y1="-128" x2="${-24 * f}" y2="-80" stroke="${camisa}" stroke-width="14" stroke-linecap="round"/>`;
+  else if (brazo === 'frente') brazos = `<line x1="0" y1="-128" x2="${58 * f}" y2="-120" stroke="${camisa}" stroke-width="14" stroke-linecap="round"/><line x1="0" y1="-128" x2="${50 * f}" y2="-104" stroke="${camisa}" stroke-width="14" stroke-linecap="round"/>`;
+  else brazos = `<line x1="0" y1="-128" x2="${-Math.sin(p) * 18}" y2="-74" stroke="${camisa}" stroke-width="14" stroke-linecap="round"/><line x1="0" y1="-128" x2="${Math.sin(p) * 18}" y2="-74" stroke="${camisa}" stroke-width="14" stroke-linecap="round"/>`;
+  return `<g transform="translate(${x},${y}) scale(${e})">
+    <ellipse cx="0" cy="2" rx="40" ry="8" fill="#000" opacity=".25"/>
+    <line x1="-8" y1="-70" x2="${-8 + pierna}" y2="0" stroke="#24364a" stroke-width="16" stroke-linecap="round"/>
+    <line x1="8" y1="-70" x2="${8 - pierna}" y2="0" stroke="#24364a" stroke-width="16" stroke-linecap="round"/>
+    <rect x="-24" y="-140" width="48" height="76" rx="14" fill="${camisa}"/>
+    <rect x="-22" y="-136" width="44" height="66" rx="10" fill="${chaleco}"/>
+    <rect x="-22" y="-104" width="44" height="7" fill="#e8f0f2"/>
+    ${brazos}
+    <circle cx="${4 * f}" cy="-162" r="20" fill="#e2b48c"/>
+    <circle cx="${12 * f}" cy="-164" r="2.6" fill="#222"/>
+    <path d="M-24,-168 Q${2 * f},-206 26,-168 Z" fill="${casco}"/>
+    <rect x="${f > 0 ? -24 : -30}" y="-170" width="54" height="7" rx="3" fill="${casco}"/>
+  </g>`;
+}
+
+function extintorSvg(x, y, tipo, escala = 1) {
+  const agua = tipo === 'agua';
+  return `<g transform="translate(${x},${y}) scale(${escala})">
+    <rect x="-26" y="-150" width="52" height="150" rx="22" fill="${agua ? '#c9d3dc' : '#d32f2f'}" stroke="#333" stroke-width="3"/>
+    <rect x="-26" y="-100" width="52" height="40" fill="${agua ? '#1e88e5' : '#111'}"/>
+    <text x="0" y="-74" font-size="${agua ? 15 : 18}" text-anchor="middle" font-weight="800" fill="#fff">${agua ? 'AGUA' : 'CO₂'}</text>
+    <rect x="-8" y="-172" width="16" height="24" fill="#333"/>
+    <path d="M-4,-170 L-30,-182" stroke="#333" stroke-width="6" stroke-linecap="round"/>
+    ${agua ? '<path d="M8,-160 Q48,-150 40,-100" fill="none" stroke="#222" stroke-width="7"/>' : '<path d="M8,-160 Q44,-150 40,-110" fill="none" stroke="#222" stroke-width="7"/><polygon points="32,-112 48,-112 56,-70 24,-70" fill="#111"/>'}
+  </g>`;
+}
+
+function senalSalida(x, y, w = 150) {
+  return `<g transform="translate(${x},${y})">
+    <rect width="${w}" height="56" rx="6" fill="#1b9e4b" stroke="#fff" stroke-width="3"/>
+    <text x="${w / 2 + 18}" y="38" font-size="26" font-weight="800" text-anchor="middle" fill="#fff">SALIDA</text>
+    <circle cx="22" cy="16" r="6" fill="#fff"/><path d="M20,22 L16,38 M18,28 L30,34 M16,38 L10,50 M16,38 L26,48" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+  </g>`;
+}
+
+function flash(color, o) { return o > 0 ? `<rect width="1280" height="720" fill="${color}" opacity="${o.toFixed(3)}"/>` : ''; }
+
+function exterior(t) {
+  return `<defs><linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7cc3ef"/><stop offset="1" stop-color="#cfeaf8"/></linearGradient></defs>
+  <rect width="1280" height="720" fill="url(#cielo)"/>
+  <rect y="540" width="1280" height="180" fill="#6fa257"/>
+  <rect y="540" width="1280" height="40" fill="#9a9a9a"/>
+  <rect x="40" y="200" width="520" height="340" fill="#c97b4b"/>
+  <rect x="40" y="190" width="520" height="16" fill="#8e5634"/>
+  ${[0, 1, 2, 3].map((i) => `<rect x="${80 + i * 120}" y="240" width="80" height="80" fill="#cde3f0" stroke="#fff" stroke-width="5"/>`).join('')}
+  <rect x="250" y="400" width="100" height="140" fill="#444"/>
+  ${senalSalida(225, 340)}
+  <g transform="translate(980,330)">
+    <rect x="-6" y="40" width="12" height="190" fill="#777"/>
+    <rect x="-90" y="-60" width="180" height="140" rx="8" fill="#1b9e4b" stroke="#fff" stroke-width="4"/>
+    ${[[0, -1], [0, 1], [-1, 0], [1, 0]].map(([dx, dy]) => `<line x1="${dx * 48}" y1="${dy * 38}" x2="${dx * 18}" y2="${dy * 14}" stroke="#fff" stroke-width="7" marker-end="url(#fl)"/>`).join('')}
+    <circle cx="0" cy="0" r="7" fill="#fff"/>
+    <text x="0" y="62" font-size="15" font-weight="800" text-anchor="middle" fill="#fff">PUNTO DE REUNIÓN</text>
+  </g>
+  <defs><marker id="fl" markerWidth="4" markerHeight="4" refX="2" refY="2" orient="auto"><path d="M0,0 L4,2 L0,4 Z" fill="#fff"/></marker></defs>`;
+}
+
+function check(cx, cy, k) {
+  if (k <= 0) return '';
+  return `<g transform="translate(${cx},${cy}) scale(${ease(k)})"><circle r="90" fill="#1b9e4b" opacity=".92"/><path d="M-42,2 L-12,32 L46,-30" fill="none" stroke="#fff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/></g>`;
+}
+function cruz(cx, cy, k) {
+  if (k <= 0) return '';
+  return `<g transform="translate(${cx},${cy}) scale(${ease(k)})"><circle r="90" fill="#d32f2f" opacity=".92"/><path d="M-36,-36 L36,36 M36,-36 L-36,36" stroke="#fff" stroke-width="18" stroke-linecap="round"/></g>`;
+}
+
+// ---------- Escenas ----------
+const escenas = {
+  'inicio': {
+    dur: 20, chip: 'Almacén · 7:40 a.m.',
+    caps: [[0.5, 4.5, 'Inicia el turno en el almacén.'], [4.5, 7, '¿Qué es ese olor a quemado?'], [7, 20, 'Sale humo del tablero eléctrico.']],
+    draw(t) {
+      const x = lerp(-60, 700, prog(t, 0, 4.5));
+      const zoom = 1 + .18 * prog(t, 7, 12);
+      const humoK = clamp((t - 3) / 5);
+      return `<g transform="translate(${1000 * (1 - zoom)},${380 * (1 - zoom)}) scale(${zoom})">${almacen()}${tablero(930, 300, t > 6 ? (Math.sin(t * 17) > .7 ? 1 : 0) : 0)}${humo(t, 1000, 320, humoK)}
+        ${persona(x, 590, { paso: t < 4.5 ? t * 7 : 0, mira: 1, brazo: t > 6 ? 'frente' : 'abajo' })}</g>`;
+    },
+  },
+  'alarma': {
+    dur: 19, chip: 'Alarma activada',
+    caps: [[0.3, 3.5, 'Jalas la palanca de alarma: ¡Fuego en el tablero!'], [3.5, 6.5, 'La brigada recibe el aviso. Hay que evacuar.'], [6.5, 19, 'Estás en el segundo piso. Elevador o escaleras.']],
+    draw(t) {
+      const rojo = (Math.sin(t * 8) > 0 ? .18 : 0);
+      if (t < 5) {
+        return `${almacen()}${humo(t, 1000, 320, 1)}${tablero(930, 300)}
+          <g transform="translate(560,260)"><rect width="80" height="110" rx="8" fill="#d32f2f" stroke="#7a1010" stroke-width="4"/><text x="40" y="30" font-size="14" fill="#fff" text-anchor="middle" font-weight="800">FUEGO</text><rect x="28" y="${t > 1 ? 66 : 44}" width="24" height="30" rx="4" fill="#fff"/></g>
+          ${persona(520, 590, { brazo: 'arriba', mira: 1 })}
+          <circle cx="600" cy="230" r="${18 + 6 * Math.sin(t * 8)}" fill="#ff3030" opacity="${t > 1 ? .9 : 0}"/>${flash('#ff0000', t > 1 ? rojo : 0)}`;
+      }
+      // Pasillo del segundo piso
+      const mira = Math.sin((t - 5) * 1.6) > 0 ? 1 : -1;
+      return `<rect width="1280" height="720" fill="#4a5966"/><rect y="560" width="1280" height="160" fill="#5d5d5d"/>
+        <g transform="translate(230,230)"><rect width="200" height="330" fill="#9aa5b1" stroke="#6b7682" stroke-width="6"/><line x1="100" y1="0" x2="100" y2="330" stroke="#6b7682" stroke-width="4"/>
+          <rect x="60" y="-50" width="80" height="34" rx="4" fill="#111"/><text x="100" y="-25" font-size="22" text-anchor="middle" fill="#ff5050" font-family="monospace">2</text>
+          <circle cx="230" cy="150" r="14" fill="#ddd" stroke="#555" stroke-width="3"/><circle cx="230" cy="190" r="14" fill="#ddd" stroke="#555" stroke-width="3"/></g>
+        <text x="330" y="168" font-size="22" text-anchor="middle" fill="#fff" opacity=".8">ELEVADOR</text>
+        <g transform="translate(870,230)"><rect width="190" height="330" fill="#3f6f4a" stroke="#264d2f" stroke-width="6"/><rect x="20" y="150" width="150" height="16" fill="#ccc"/></g>
+        ${senalSalida(890, 150)}
+        <text x="965" y="330" font-size="22" text-anchor="middle" fill="#fff" opacity=".9">ESCALERAS</text>
+        ${persona(640, 600, { mira })}${flash('#ff0000', rojo * .8)}`;
+    },
+  },
+  'escaleras': {
+    dur: 18, chip: 'Ruta de evacuación',
+    caps: [[0.3, 3.5, 'Bajas por la escalera sin correr, por tu derecha.'], [3.5, 6.5, 'Sales por la puerta de emergencia.'], [6.5, 18, 'Tu mochila y tu celular se quedaron adentro…']],
+    draw(t) {
+      if (t < 4) {
+        let s = `<rect width="1280" height="720" fill="#596673"/>`;
+        for (let i = 0; i < 12; i++) s += `<rect x="${200 + i * 70}" y="${180 + i * 40}" width="70" height="${600 - i * 40}" fill="${i % 2 ? '#8b8f94' : '#7d8186'}"/>`;
+        s += `<line x1="230" y1="100" x2="1080" y2="580" stroke="#ffd23f" stroke-width="10"/>${senalSalida(1060, 60)}`;
+        const k = prog(t, 0, 4);
+        s += persona(lerp(260, 1000, k), lerp(180, 640, k), { paso: t * 8, mira: 1 });
+        return s + flash('#ff0000', Math.sin(t * 8) > 0 ? .1 : 0);
+      }
+      const k = prog(t, 4, 7);
+      return `${exterior(t)}${humo(t, 420, 200, .5, 200, 10)}${persona(lerp(300, 700, k), 600, { paso: t < 7 ? t * 8 : 0, mira: t > 9 ? -1 : 1 })}
+        ${t > 8 ? `<g opacity="${clamp(t - 8)}"><ellipse cx="560" cy="330" rx="110" ry="60" fill="#fff"/><circle cx="640" cy="410" r="12" fill="#fff"/><circle cx="665" cy="440" r="7" fill="#fff"/>
+          <rect x="500" y="300" width="50" height="60" rx="12" fill="#2b6cb0"/><rect x="570" y="300" width="36" height="62" rx="6" fill="#222"/><rect x="575" y="306" width="26" height="46" fill="#79b8ff"/></g>` : ''}`;
+    },
+  },
+  'extintor': {
+    dur: 18, chip: 'Gabinete de extintores',
+    caps: [[0.3, 3.5, 'Corres al gabinete de extintores.'], [3.5, 6.5, 'Hay dos: uno de agua y uno de CO₂.'], [6.5, 18, 'El fuego viene del tablero: es un fuego eléctrico.']],
+    draw(t) {
+      const x = lerp(820, 470, prog(t, 0, 3));
+      return `${almacen()}${tablero(930, 300)}${humo(t, 1000, 320, 1)}${fuego(1005, 500, .55 + .05 * Math.sin(t), t)}
+        <g transform="translate(140,250)"><rect width="270" height="300" rx="6" fill="#b71c1c" stroke="#7a1010" stroke-width="6"/><rect x="14" y="14" width="242" height="272" fill="#f2f2f2"/></g>
+        ${extintorSvg(215, 520, 'agua', 1.25)}${extintorSvg(335, 520, 'co2', 1.25)}
+        ${t > 3.5 && t < 7 ? `<rect x="160" y="300" width="110" height="230" fill="none" stroke="#ffd23f" stroke-width="6" rx="10" opacity="${Math.sin(t * 6) > 0 ? 1 : .3}"/><rect x="280" y="300" width="110" height="230" fill="none" stroke="#ffd23f" stroke-width="6" rx="10" opacity="${Math.sin(t * 6) > 0 ? .3 : 1}"/>` : ''}
+        ${persona(x, 600, { paso: t < 3 ? t * 8 : 0, mira: -1 })}`;
+    },
+  },
+  'tecnica': {
+    dur: 21, chip: 'Técnica PASE',
+    caps: [[0, 2.5, 'P: Presiona y quita el seguro.'], [2.5, 5, 'A: Apunta la boquilla.'], [5, 7.5, 'S: Sujeta y aprieta la palanca.'], [7.5, 10, 'E: Esparce de lado a lado.'], [10, 21, 'Estás a dos metros del fuego. ¿A dónde apuntas?']],
+    draw(t) {
+      if (t < 10) {
+        const paso = Math.floor(t / 2.5);
+        const letras = ['P', 'A', 'S', 'E'];
+        let s = `<rect width="1280" height="720" fill="#1f2a35"/>`;
+        letras.forEach((l, i) => {
+          const on = i === paso, x = 200 + i * 290;
+          s += `<g transform="translate(${x},250)"><rect x="-90" y="-90" width="180" height="180" rx="18" fill="${on ? '#d32f2f' : '#2d3b48'}" stroke="${i <= paso ? '#ffd23f' : '#3d4b58'}" stroke-width="5"/>
+            <text y="40" font-size="120" font-weight="900" text-anchor="middle" fill="#fff">${l}</text></g>`;
+        });
+        const k = (t % 2.5) / 2.5;
+        let det = '';
+        if (paso === 0) det = `<rect x="610" y="${470 - 40 * ease(k)}" width="60" height="12" rx="6" fill="#ffd23f"/><circle cx="${600 - 60 * ease(k)}" cy="${476 - 40 * ease(k)}" r="20" fill="none" stroke="#ffd23f" stroke-width="6"/>`;
+        if (paso === 1) det = `<path d="M560,520 Q640,${470 + 20 * Math.sin(t * 3)} 760,560" stroke="#222" stroke-width="14" fill="none"/><polygon points="740,540 790,550 760,590" fill="#111"/><line x1="790" y1="570" x2="900" y2="610" stroke="#ffd23f" stroke-width="4" stroke-dasharray="10 8"/>`;
+        if (paso === 2) det = `<rect x="560" y="460" width="160" height="22" rx="8" fill="#555" transform="rotate(${-12 * ease(k)},560,470)"/><rect x="560" y="500" width="160" height="22" rx="8" fill="#555"/>`;
+        if (paso === 3) det = `<path d="M640,600 L${640 + Math.sin(t * 5) * 160},470" stroke="#e8eef3" stroke-width="40" stroke-linecap="round" opacity=".7"/>`;
+        return s + det;
+      }
+      const sway = Math.sin(t * 2) * 6;
+      return `${almacen()}${tablero(930, 300)}${humo(t, 1000, 320, 1)}${fuego(1005, 500, .6, t)}
+        ${persona(720, 600, { brazo: 'frente', mira: 1 })}
+        <g transform="rotate(${sway},780,480)">${extintorSvg(780, 560, 'co2', .9)}</g>
+        <line x1="840" y1="400" x2="1000" y2="${380}" stroke="#ffd23f" stroke-width="4" stroke-dasharray="10 8" opacity="${Math.sin(t * 4) > 0 ? .9 : .3}"/>
+        <line x1="840" y1="470" x2="1000" y2="${500}" stroke="#ffd23f" stroke-width="4" stroke-dasharray="10 8" opacity="${Math.sin(t * 4) > 0 ? .3 : .9}"/>`;
+    },
+  },
+  'final-exito-evacuacion': {
+    dur: 8, chip: 'Punto de reunión', big: [4, '¡Todos a salvo!', 'La brigada confirma que nadie quedó adentro.'],
+    caps: [[0.3, 4, 'Te reportas con la brigada en el punto de reunión.']],
+    draw(t) {
+      let s = exterior(t) + humo(t, 420, 200, .3, 200, 8);
+      [[860, '#2f5d8a'], [920, '#5a3e8a'], [1080, '#2f8a5d'], [1140, '#8a2f2f']].forEach(([x, c], i) => s += persona(x, 600, { camisa: c, mira: i % 2 ? -1 : 1, escala: .9 }));
+      s += persona(lerp(700, 1000, prog(t, 0, 2.5)), 610, { paso: t < 2.5 ? t * 8 : 0, mira: 1 });
+      s += persona(800, 620, { chaleco: '#c62828', casco: '#fff', brazo: 'frente', mira: 1, escala: 1.05 });
+      return s + check(640, 260, clamp((t - 3.5) * 2));
+    },
+  },
+  'final-exito-extintor': {
+    dur: 8, chip: 'Conato controlado', big: [4.6, '¡Fuego controlado!', 'Reporta el incidente y no reconectes el tablero.'],
+    caps: [[0.3, 4.5, 'Descargas el CO₂ en la base, de lado a lado.']],
+    draw(t) {
+      const esc = .6 * (1 - prog(t, 0.5, 4));
+      let nube = '';
+      for (let i = 0; i < 18; i++) { const k = ((t * .6 + i / 18) % 1); nube += `<circle cx="${860 + k * 180 + Math.sin(t * 5 + i) * 15}" cy="${490 + Math.sin(t * 3 + i) * 30 * k}" r="${10 + 40 * k}" fill="#eef4f8" opacity="${(t < 4.2 ? .6 : .6 * (1 - prog(t, 4.2, 5.5))) * (1 - k)}"/>`; }
+      return `${almacen()}${tablero(930, 300)}${humo(t, 1000, 320, 1 - prog(t, 1, 6))}${fuego(1005, 500, esc, t)}${nube}
+        ${persona(720, 600, { brazo: 'frente', mira: 1 })}${extintorSvg(780, 560, 'co2', .9)}${check(640, 220, clamp((t - 4.2) * 2))}`;
+    },
+  },
+  'final-ignorar': {
+    dur: 8, chip: 'Diez minutos después', big: [5, 'El fuego se propagó', 'Nadie dio la alerta a tiempo.'],
+    caps: [[0.3, 4.5, 'Sigues acomodando cajas. El humo se vuelve fuego.']],
+    draw(t) {
+      return `${almacen()}${tablero(930, 300)}${humo(t, 1000, 320, 1.4, 500, 26)}${fuego(1005, 520, .4 + prog(t, 0, 5) * 1.4, t)}${fuego(560, 560, prog(t, 2, 6) * .9, t + 1)}
+        ${persona(250, 590, { brazo: 'arriba', mira: -1 })}${flash('#2a0500', prog(t, 3, 7) * .55)}${cruz(640, 220, clamp((t - 4.6) * 2))}`;
+    },
+  },
+  'final-elevador': {
+    dur: 8, chip: 'Dentro del elevador', big: [5, 'Atrapado', 'Con la alarma se corta la energía.'],
+    caps: [[0.3, 4.5, 'Las puertas se cierran… y el elevador se detiene.']],
+    draw(t) {
+      const parpadeo = t > 2 && t < 4 ? (noise(Math.floor(t * 10)) > .5 ? 1 : .2) : (t >= 4 ? .15 : 1);
+      return `<rect width="1280" height="720" fill="#b0b8c0"/><rect x="200" y="80" width="880" height="560" fill="#c8ced4" stroke="#8a929a" stroke-width="8"/>
+        <line x1="640" y1="80" x2="640" y2="640" stroke="#8a929a" stroke-width="6"/>
+        <rect x="560" y="20" width="160" height="50" rx="6" fill="#111"/><text x="640" y="56" font-size="34" text-anchor="middle" fill="#ff5050" font-family="monospace">${t < 2 ? '2 ↓' : t < 4 ? '1½' : '— —'}</text>
+        ${persona(640, 600, { mira: Math.sin(t * 2) > 0 ? 1 : -1, brazo: t > 4 ? 'arriba' : 'abajo' })}
+        ${flash('#000', 1 - parpadeo)}${t >= 4 ? flash('#ff0000', .15 + .1 * Math.sin(t * 6)) : ''}${cruz(640, 240, clamp((t - 4.6) * 2))}`;
+    },
+  },
+  'final-regresar': {
+    dur: 8, chip: 'Punto de reunión', big: [5, 'Te pusiste en riesgo', 'La brigada tuvo que entrar a buscarte.'],
+    caps: [[0.3, 4.5, 'Regresas por tus cosas. En la lista falta tu nombre.']],
+    draw(t) {
+      const k = prog(t, 0, 3.5);
+      return `${exterior(t)}${humo(t, 300, 400, 1.2, 380, 20)}${humo(t, 160, 240, .8, 200, 10)}
+        ${persona(lerp(700, 300, k), 600, { paso: t < 3.5 ? t * 8 : 0, mira: -1, escala: lerp(1, .8, k) })}
+        ${persona(980, 620, { chaleco: '#c62828', casco: '#fff', brazo: 'arriba', mira: -1 })}
+        ${cruz(640, 220, clamp((t - 4.6) * 2))}`;
+    },
+  },
+  'final-agua': {
+    dur: 8, chip: 'Agua sobre el tablero', big: [5, 'Riesgo de electrocución', 'El agua conduce la corriente.'],
+    caps: [[0.3, 4.5, 'Lanzas agua al tablero energizado…']],
+    draw(t) {
+      let rayos = '';
+      if (t > 1.6) for (let i = 0; i < 5; i++) { const a = noise(Math.floor(t * 12) + i * 7); rayos += `<polyline points="${[0, 1, 2, 3, 4].map((j) => `${980 - j * 50 + (noise(i + j + Math.floor(t * 12)) - .5) * 40},${380 + (a - .5) * 140 + j * 20}`).join(' ')}" fill="none" stroke="#fff6a0" stroke-width="4"/>`; }
+      return `${almacen()}${tablero(930, 300, t > 1.6 ? 1 : 0)}${humo(t, 1000, 320, 1)}${fuego(1005, 500, .5, t)}
+        ${t > .8 ? `<path d="M830,440 Q920,${400 + Math.sin(t * 10) * 6} 990,420" stroke="#4fa3ff" stroke-width="16" fill="none" opacity=".8"/>` : ''}
+        ${persona(720, 600, { brazo: 'frente', mira: 1 })}${extintorSvg(780, 560, 'agua', .9)}${rayos}
+        ${flash('#ffffff', t > 2.2 && t < 2.6 ? .85 : 0)}${cruz(640, 220, clamp((t - 4.6) * 2))}`;
+    },
+  },
+  'final-llamas': {
+    dur: 8, chip: 'Apuntando a las llamas', big: [5, 'El extintor se vació', 'El fuego siguió desde la base.'],
+    caps: [[0.3, 4.5, 'Apuntas arriba. El CO₂ pasa sobre las llamas…']],
+    draw(t) {
+      const presion = 1 - prog(t, 0.5, 4);
+      let nube = '';
+      for (let i = 0; i < 14; i++) { const k = ((t * .6 + i / 14) % 1); nube += `<circle cx="${860 + k * 220}" cy="${360 - k * 140 + Math.sin(i) * 20}" r="${10 + 34 * k}" fill="#eef4f8" opacity="${(t < 4 ? .55 : 0) * (1 - k)}"/>`; }
+      return `${almacen()}${tablero(930, 300)}${humo(t, 1000, 320, 1.2)}${fuego(1005, 500, .6 + prog(t, 1, 6) * .5, t)}${nube}
+        ${persona(720, 600, { brazo: 'frente', mira: 1 })}${extintorSvg(780, 560, 'co2', .9)}
+        <g transform="translate(120,130)"><circle r="60" fill="#fff" stroke="#333" stroke-width="6"/><path d="M-42,20 A46,46 0 0 1 42,20" stroke="#d32f2f" stroke-width="10" fill="none"/>
+          <line x1="0" y1="0" x2="${Math.cos(Math.PI + presion * Math.PI) * 44}" y2="${Math.sin(Math.PI + presion * Math.PI) * 44}" stroke="#111" stroke-width="6" stroke-linecap="round"/><text y="44" font-size="16" text-anchor="middle" font-weight="800">${presion < .05 ? 'VACÍO' : 'PRESIÓN'}</text></g>
+        ${cruz(640, 220, clamp((t - 4.6) * 2))}`;
+    },
+  },
+};
+
+window.escenas = Object.fromEntries(Object.entries(escenas).map(([k, v]) => [k, v.dur]));
+window.render = (id, t) => {
+  const e = escenas[id];
+  document.getElementById('svg').innerHTML = e.draw(t);
+  document.getElementById('chip').textContent = e.chip;
+  const cap = e.caps.find(([a, b]) => t >= a && t < b);
+  document.getElementById('cap').textContent = cap ? cap[2] : '';
+  const big = document.getElementById('big');
+  if (e.big && t >= e.big[0]) {
+    const o = clamp((t - e.big[0]) * 2);
+    big.style.background = `rgba(0,0,0,${(o * .45).toFixed(2)})`;
+    big.innerHTML = `<div class="t" style="opacity:${o}">${e.big[1]}</div><div class="s" style="opacity:${o}">${e.big[2]}</div>`;
+    document.getElementById('cap').textContent = '';
+  } else { big.innerHTML = ''; big.style.background = 'none'; }
+};
+</script>
+</body>
+</html>
